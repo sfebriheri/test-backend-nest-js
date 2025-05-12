@@ -1,0 +1,174 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Restaurant Model
+model Restaurant {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  address     String
+  city        String
+  state       String
+  zipCode     String
+  phone       String
+  email       String
+  website     String?
+  logo        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  menuCategories MenuCategory[]
+  orders        Order[]
+  operatingHours OperatingHours[]
+}
+
+// Operating Hours Model
+model OperatingHours {
+  id           String   @id @default(uuid())
+  dayOfWeek    Int      // 0-6 (Sunday-Saturday)
+  openTime     String   // HH:mm format
+  closeTime    String   // HH:mm format
+  isClosed     Boolean  @default(false)
+  restaurantId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+}
+
+// Menu Category Model
+model MenuCategory {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  image        String?
+  isActive     Boolean  @default(true)
+  sequence     Int      @default(0)
+  restaurantId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  menuItems    MenuItem[]
+}
+
+// Menu Item Model
+model MenuItem {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  price        Decimal
+  image        String?
+  isAvailable  Boolean  @default(true)
+  isVegetarian Boolean  @default(false)
+  isVegan      Boolean  @default(false)
+  isSpicy      Boolean  @default(false)
+  calories     Int?
+  sequence     Int      @default(0)
+  categoryId   String
+  restaurantId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  category     MenuCategory @relation(fields: [categoryId], references: [id])
+  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id])
+  orderItems   OrderItem[]
+}
+
+// Order Model
+model Order {
+  id           String   @id @default(uuid())
+  orderNumber  String   @unique
+  status       OrderStatus @default(PENDING)
+  totalAmount  Decimal
+  customerName String
+  customerPhone String
+  customerEmail String?
+  deliveryAddress String
+  specialInstructions String?
+  restaurantId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  orderItems   OrderItem[]
+  statusHistory OrderStatusHistory[]
+}
+
+// Order Item Model
+model OrderItem {
+  id        String   @id @default(uuid())
+  quantity  Int
+  price     Decimal
+  notes     String?
+  orderId   String
+  menuItemId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  order     Order    @relation(fields: [orderId], references: [id])
+  menuItem  MenuItem @relation(fields: [menuItemId], references: [id])
+}
+
+// Order Status History Model
+model OrderStatusHistory {
+  id        String   @id @default(uuid())
+  status    OrderStatus
+  notes     String?
+  orderId   String
+  createdAt DateTime @default(now())
+
+  // Relations
+  order     Order    @relation(fields: [orderId], references: [id])
+}
+
+// Analytics Model
+model Analytics {
+  id           String   @id @default(uuid())
+  date         DateTime
+  restaurantId String
+  totalOrders  Int
+  totalRevenue Decimal
+  averageOrderValue Decimal
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Popular Items Model
+model PopularItem {
+  id           String   @id @default(uuid())
+  date         DateTime
+  restaurantId String
+  menuItemId   String
+  orderCount   Int
+  totalQuantity Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Enum for Order Status
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+} 
