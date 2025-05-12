@@ -17,10 +17,13 @@ export class RedisService {
   private readonly DEFAULT_TTL = 3600; // 1 hour
   private readonly MENU_KEY_PREFIX = 'menu:';
   private readonly ANALYTICS_KEY_PREFIX = 'analytics:';
+  private readonly redis: RedisClientType;
 
   constructor(
-    @Inject('REDIS_CLIENT') private readonly redis: RedisClientType,
-  ) {}
+    @Inject('REDIS_CLIENT') redisClient: RedisClientType,
+  ) {
+    this.redis = redisClient;
+  }
 
   private getMenuKey(restaurantId: string): string {
     return `${this.MENU_KEY_PREFIX}${restaurantId}`;
