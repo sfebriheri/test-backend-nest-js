@@ -1,8 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RabbitMQService } from '../rabbitmq/rabbitmq.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+
+type OrderStatus = 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY_FOR_PICKUP' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
+
+export interface OrderEvent {
+  type: 'ORDER_CREATED' | 'ORDER_STATUS_UPDATED' | 'ORDER_CANCELLED';
+  orderId: string;
+  restaurantId: string;
+  data: any;
+  timestamp: Date;
+}
 
 @Injectable()
 export class OrderService {
@@ -33,23 +43,36 @@ export class OrderService {
         },
       },
       include: {
-        orderItems: true,
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
         statusHistory: true,
       },
     });
 
     await this.rabbitmq.publishOrderUpdate({
       type: 'ORDER_CREATED',
+      orderId: order.id,
+      restaurantId: order.restaurantId,
       data: order,
+      timestamp: new Date(),
     });
 
     return order;
   }
 
-  async findAll() {
+  async findAll(restaurantId?: string) {
+    const where = restaurantId ? { restaurantId } : {};
     return this.prisma.order.findMany({
+      where,
       include: {
-        orderItems: true,
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
         statusHistory: true,
       },
       orderBy: {
@@ -59,13 +82,23 @@ export class OrderService {
   }
 
   async findOne(id: string) {
-    return this.prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
-        orderItems: true,
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
         statusHistory: true,
       },
     });
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID ${id} not found`);
+    }
+
+    return order;
   }
 
   async updateStatus(id: string, updateOrderStatusDto: UpdateOrderStatusDto) {
@@ -81,17 +114,100 @@ export class OrderService {
         },
       },
       include: {
-        orderItems: true,
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
         statusHistory: true,
       },
     });
 
     await this.rabbitmq.publishOrderUpdate({
       type: 'ORDER_STATUS_UPDATED',
+      orderId: order.id,
+      restaurantId: order.restaurantId,
       data: order,
+      timestamp: new Date(),
     });
 
     return order;
+  }
+
+  async cancelOrder(id: string, reason: string) {
+    const order = await this.prisma.order.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        statusHistory: {
+          create: {
+            status: 'CANCELLED',
+            notes: `Order cancelled: ${reason}`,
+          },
+        },
+      },
+      include: {
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
+        statusHistory: true,
+      },
+    });
+
+    await this.rabbitmq.publishOrderUpdate({
+      type: 'ORDER_CANCELLED',
+      orderId: order.id,
+      restaurantId: order.restaurantId,
+      data: order,
+      timestamp: new Date(),
+    });
+
+    return order;
+  }
+
+  async getOrdersByStatus(restaurantId: string, status: OrderStatus) {
+    return this.prisma.order.findMany({
+      where: {
+        restaurantId,
+        status,
+      },
+      include: {
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
+        statusHistory: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async getOrdersByDateRange(restaurantId: string, startDate: Date, endDate: Date) {
+    return this.prisma.order.findMany({
+      where: {
+        restaurantId,
+        createdAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        orderItems: {
+          include: {
+            menuItem: true,
+          },
+        },
+        statusHistory: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
   }
 
   private generateOrderNumber(): string {

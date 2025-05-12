@@ -1,21 +1,46 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { RedisClientType } from 'redis';
+import { PrismaClient } from '@prisma/client';
+
+type MenuCategory = PrismaClient['menuCategory']['payload']['select'];
+type MenuItem = PrismaClient['menuItem']['payload']['select'];
+
+export interface CachedMenu {
+  categories: (MenuCategory & {
+    menuItems: MenuItem[];
+  })[];
+  lastUpdated: Date;
+}
 
 @Injectable()
 export class RedisService {
+  private readonly DEFAULT_TTL = 3600; // 1 hour
+  private readonly MENU_KEY_PREFIX = 'menu:';
+  private readonly ANALYTICS_KEY_PREFIX = 'analytics:';
+
   constructor(
     @Inject('REDIS_CLIENT') private readonly redis: RedisClientType,
   ) {}
 
-  async get(key: string): Promise<string | null> {
-    return this.redis.get(key);
+  private getMenuKey(restaurantId: string): string {
+    return `${this.MENU_KEY_PREFIX}${restaurantId}`;
   }
 
-  async set(key: string, value: string, ttl?: number): Promise<void> {
+  private getAnalyticsKey(restaurantId: string, date: string): string {
+    return `${this.ANALYTICS_KEY_PREFIX}${restaurantId}:${date}`;
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    const data = await this.redis.get(key);
+    return data ? JSON.parse(data) : null;
+  }
+
+  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    const serialized = JSON.stringify(value);
     if (ttl) {
-      await this.redis.set(key, value, { EX: ttl });
+      await this.redis.set(key, serialized, { EX: ttl });
     } else {
-      await this.redis.set(key, value);
+      await this.redis.set(key, serialized);
     }
   }
 
@@ -23,15 +48,45 @@ export class RedisService {
     await this.redis.del(key);
   }
 
-  async getMenu(restaurantId: string): Promise<string | null> {
-    return this.get(`menu:${restaurantId}`);
+  async getMenu(restaurantId: string): Promise<CachedMenu | null> {
+    return this.get<CachedMenu>(this.getMenuKey(restaurantId));
   }
 
-  async setMenu(restaurantId: string, menu: string, ttl = 3600): Promise<void> {
-    await this.set(`menu:${restaurantId}`, menu, ttl);
+  async setMenu(restaurantId: string, menu: CachedMenu, ttl = this.DEFAULT_TTL): Promise<void> {
+    await this.set(this.getMenuKey(restaurantId), menu, ttl);
   }
 
   async invalidateMenu(restaurantId: string): Promise<void> {
-    await this.del(`menu:${restaurantId}`);
+    await this.del(this.getMenuKey(restaurantId));
+  }
+
+  async getAnalytics(restaurantId: string, date: string): Promise<any | null> {
+    return this.get(this.getAnalyticsKey(restaurantId, date));
+  }
+
+  async setAnalytics(restaurantId: string, date: string, data: any, ttl = this.DEFAULT_TTL): Promise<void> {
+    await this.set(this.getAnalyticsKey(restaurantId, date), data, ttl);
+  }
+
+  async invalidateAnalytics(restaurantId: string, date: string): Promise<void> {
+    await this.del(this.getAnalyticsKey(restaurantId, date));
+  }
+
+  async invalidateAllAnalytics(restaurantId: string): Promise<void> {
+    const keys = await this.redis.keys(`${this.ANALYTICS_KEY_PREFIX}${restaurantId}:*`);
+    if (keys.length > 0) {
+      await this.redis.del(keys);
+    }
+  }
+
+  async getPopularItems(restaurantId: string, limit = 10): Promise<any[]> {
+    const key = `${this.ANALYTICS_KEY_PREFIX}${restaurantId}:popular`;
+    const data = await this.get<any[]>(key);
+    return data || [];
+  }
+
+  async updatePopularItems(restaurantId: string, items: any[], ttl = this.DEFAULT_TTL): Promise<void> {
+    const key = `${this.ANALYTICS_KEY_PREFIX}${restaurantId}:popular`;
+    await this.set(key, items, ttl);
   }
 } 

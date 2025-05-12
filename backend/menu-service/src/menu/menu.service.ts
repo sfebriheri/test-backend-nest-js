@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { RabbitMQService } from '../rabbitmq/rabbitmq.service';
+import { RabbitMQService, MenuUpdateEvent, MenuItemUpdateEvent } from '../rabbitmq/rabbitmq.service';
 import { RedisService } from '../redis/redis.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -25,8 +25,9 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(restaurantId);
     await this.rabbitmq.publishMenuUpdate({
-      type: 'CATEGORY_CREATED',
+      type: 'CREATE',
       data: category,
+      timestamp: new Date(),
     });
     return category;
   }
@@ -38,8 +39,9 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(category.restaurantId);
     await this.rabbitmq.publishMenuUpdate({
-      type: 'CATEGORY_UPDATED',
+      type: 'UPDATE',
       data: category,
+      timestamp: new Date(),
     });
     return category;
   }
@@ -50,8 +52,9 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(category.restaurantId);
     await this.rabbitmq.publishMenuUpdate({
-      type: 'CATEGORY_DELETED',
+      type: 'DELETE',
       data: category,
+      timestamp: new Date(),
     });
     return category;
   }
@@ -66,8 +69,11 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(restaurantId);
     await this.rabbitmq.publishMenuItemUpdate({
-      type: 'ITEM_CREATED',
+      type: 'PRICE_CHANGE',
+      menuItemId: menuItem.id,
+      restaurantId,
       data: menuItem,
+      timestamp: new Date(),
     });
     return menuItem;
   }
@@ -79,8 +85,11 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(menuItem.restaurantId);
     await this.rabbitmq.publishMenuItemUpdate({
-      type: 'ITEM_UPDATED',
+      type: 'PRICE_CHANGE',
+      menuItemId: menuItem.id,
+      restaurantId: menuItem.restaurantId,
       data: menuItem,
+      timestamp: new Date(),
     });
     return menuItem;
   }
@@ -92,8 +101,11 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(menuItem.restaurantId);
     await this.rabbitmq.publishMenuItemAvailability({
-      type: 'ITEM_AVAILABILITY_UPDATED',
-      data: menuItem,
+      type: 'AVAILABILITY_CHANGE',
+      menuItemId: menuItem.id,
+      restaurantId: menuItem.restaurantId,
+      data: { isAvailable },
+      timestamp: new Date(),
     });
     return menuItem;
   }
@@ -104,9 +116,85 @@ export class MenuService {
     });
     await this.redis.invalidateMenu(menuItem.restaurantId);
     await this.rabbitmq.publishMenuItemUpdate({
-      type: 'ITEM_DELETED',
+      type: 'PRICE_CHANGE',
+      menuItemId: menuItem.id,
+      restaurantId: menuItem.restaurantId,
       data: menuItem,
+      timestamp: new Date(),
     });
     return menuItem;
+  }
+
+  // Additional features
+  async getMenuByRestaurant(restaurantId: string) {
+    const cachedMenu = await this.redis.getMenu(restaurantId);
+    if (cachedMenu) {
+      return cachedMenu;
+    }
+
+    const menu = await this.prisma.menuCategory.findMany({
+      where: { restaurantId },
+      include: {
+        menuItems: {
+          where: { isAvailable: true },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+      orderBy: { sequence: 'asc' },
+    });
+
+    await this.redis.setMenu(restaurantId, menu);
+    return menu;
+  }
+
+  async updateMenuSequence(restaurantId: string, categorySequence: { id: string; sequence: number }[]) {
+    const updates = categorySequence.map(({ id, sequence }) =>
+      this.prisma.menuCategory.update({
+        where: { id },
+        data: { sequence },
+      })
+    );
+
+    const updatedCategories = await this.prisma.$transaction(updates);
+    await this.redis.invalidateMenu(restaurantId);
+    
+    await this.rabbitmq.publishMenuUpdate({
+      type: 'UPDATE',
+      data: updatedCategories,
+      timestamp: new Date(),
+    });
+
+    return updatedCategories;
+  }
+
+  async updateMenuItemSequence(
+    categoryId: string,
+    itemSequence: { id: string; sequence: number }[]
+  ) {
+    const updates = itemSequence.map(({ id, sequence }) =>
+      this.prisma.menuItem.update({
+        where: { id },
+        data: { sequence },
+      })
+    );
+
+    const updatedItems = await this.prisma.$transaction(updates);
+    const category = await this.prisma.menuCategory.findUnique({
+      where: { id: categoryId },
+    });
+
+    if (category) {
+      await this.redis.invalidateMenu(category.restaurantId);
+    }
+
+    await this.rabbitmq.publishMenuItemUpdate({
+      type: 'PRICE_CHANGE',
+      menuItemId: updatedItems[0]?.id,
+      restaurantId: category?.restaurantId,
+      data: updatedItems,
+      timestamp: new Date(),
+    });
+
+    return updatedItems;
   }
 } 
