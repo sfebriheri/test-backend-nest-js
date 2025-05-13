@@ -20,10 +20,10 @@ async function bootstrap() {
     .addTag('menu')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api', app, document);
 
   // Start the server
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`Menu service is running on port ${port}`);
 }

@@ -1,51 +1,58 @@
-import { IsString, IsEmail, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsNotEmpty, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateRestaurantDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant name' })
   @IsString()
+  @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ description: 'Restaurant description', required: false })
   @IsString()
   @IsOptional()
   description?: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant address' })
   @IsString()
+  @IsNotEmpty()
   address: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant city' })
   @IsString()
+  @IsNotEmpty()
   city: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant state' })
   @IsString()
+  @IsNotEmpty()
   state: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant zip code' })
   @IsString()
+  @IsNotEmpty()
   zipCode: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant phone number' })
   @IsString()
+  @IsNotEmpty()
   phone: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Restaurant email' })
   @IsEmail()
+  @IsNotEmpty()
   email: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ description: 'Restaurant website', required: false })
   @IsString()
   @IsOptional()
   website?: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ description: 'Restaurant logo URL', required: false })
   @IsString()
   @IsOptional()
   logo?: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ description: 'Restaurant active status', required: false })
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
